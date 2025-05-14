@@ -40,8 +40,6 @@ SNOWFLAKE_DATABASE = "TELCO_SAMPLE_DATA"
 SNOWFLAKE_SCHEMA = "TELCO_DATASET"
 SNOWFLAKE_ROLE = st.secrets["SNOWFLAKE_ROLE"] # Optional: Specify role if needed
 
-
-
 # --- API Configuration ---
 # Construct the base URL for Snowflake API calls
 # Update SNOWFLAKE_ACCOUNT first for this to be correct
