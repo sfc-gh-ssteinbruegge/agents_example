@@ -30,50 +30,60 @@ from chart_utils import (
 )
 
 # Set page title and icon
-st.set_page_config(page_title="Cortex Agent Chat (Standalone)", page_icon="❄️", layout="wide")
-
-#  ─── HIDE STREAMLIT UI ─────────────────────────────────────────────────────
-
-st.markdown(
-    """
-    <style>
-      /* hide the "hamburger" menu in the top-right */
-      #MainMenu { visibility: hidden !important; }
-      
-      /* hide all Streamlit footer items */
-      footer { visibility: hidden !important; }
-      footer:after { visibility: hidden !important; }
-      .stDeployButton { display: none !important; }
-      .viewerBadge_container__1QSob { display: none !important; }
-      
-      /* hide specific footer elements */
-      .element-container:has(iframe[title="streamlit_elements.core.Elements"]) { display: none !important; }
-      .stApp footer { display: none !important; }
-      footer[data-testid="stFooter"] { display: none !important; }
-      .streamlit-footer { display: none !important; }
-      .streamlit-footer-item { display: none !important; }
-      
-      /* optionally reclaim the footer space */
-      .css-18e3th9 { padding-bottom: 0 !important; }
-      
-      /* hide "Made with/Built with Streamlit" */
-      .styles_viewerBadge__1QSob { display: none !important; }
-      div[data-testid="stFooter"] { display: none !important; }
-      
-      /* hide GitHub star button */
-      .css-1jc7ptx, .e1ewe7hr3, .viewerBadge_link__1QSob { display: none !important; }
-      
-      /* hide deployment button */
-      .css-1vq4p4l.e1fqkh3o4 { display: none !important; }
-      
-      /* hide fullscreen button */
-      button[title="View fullscreen"] { display: none !important; }
-      .fullScreenFrame { display: none !important; }
-    </style>
-    """,
-    unsafe_allow_html=True,
+st.set_page_config(
+    page_title="Cortex Agent Chat (Standalone)", 
+    page_icon="❄️", 
+    layout="wide",
+    menu_items={},  # Hide all menu items
+    initial_sidebar_state="expanded"
 )
-#  ────────────────────────────────────────────────────────────────────────────
+
+# Hide all Streamlit UI elements
+hide_streamlit_style = """
+<style>
+    /* Hide main menu button */
+    #MainMenu {visibility: hidden;}
+    
+    /* Hide footer */
+    header {visibility: hidden;}
+    footer {visibility: hidden !important;}
+    
+    /* Hide all footer variations */
+    .reportview-container .main footer {visibility: hidden !important;}
+    .stApp footer {display: none !important;}
+    footer:after {visibility: hidden !important;}
+    iframe {display: none !important;}
+    
+    /* Hide specific elements */
+    .viewerBadge_container__1QSob {display: none !important;}
+    .stDeployButton {display: none !important;}
+    .styles_viewerBadge__1QSob {display: none !important;}
+    div[data-testid="stFooter"] {display: none !important;}
+    div[data-testid="stToolbar"] {display: none !important;}
+    div[data-testid="stDecoration"] {display: none !important;}
+    div[data-testid="stStatusWidget"] {display: none !important;}
+    button[data-testid="baseButton-header"] {display: none !important;}
+    
+    /* Remove padding to prevent empty spaces */
+    .css-18e3th9 {padding: 2rem 1rem !important;}
+    .css-1d391kg {padding-top: 0 !important;}
+    .block-container {padding-top: 0 !important;}
+</style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
+# Additional configuration to hide deployment and other buttons
+st.markdown("""
+<style>
+    .stApp > header {display: none !important;}
+    .stApp > footer {display: none !important;}
+    .css-1rs6os {visibility: hidden;}
+    .css-17ziqus {visibility: hidden;}
+    .css-14xtw13 {visibility: hidden;}
+    section[data-testid="stSidebar"] .css-ng1t4o {width: auto !important;}
+    .css-18e3th9 {padding-top: 0 !important;}
+</style>
+""", unsafe_allow_html=True)
 
 SNOWFLAKE_ACCOUNT = st.secrets["SNOWFLAKE_ACCOUNT"] # e.g., xy12345.us-west-2
 SNOWFLAKE_USER = st.secrets["SNOWFLAKE_USER"]
