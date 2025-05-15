@@ -30,7 +30,7 @@ from chart_utils import (
 )
 
 # Set page title and icon
-st.set_page_config(page_title="Cortex Agent Chat (Standalone)", page_icon="❄️", layout="wide")
+st.set_page_config(page_title="Cortex Agent Chat (Standalone)", page_icon="./Q Logo 2024.png", layout="wide")
 
 #  ─── HIDE STREAMLIT UI ─────────────────────────────────────────────────────
 
@@ -89,7 +89,7 @@ AGENT_TOOLS = [
 # Define Tool Resources, ensure paths/names are valid in your Snowflake account)
 # !!! IMPORTANT: Replace placeholder values below !!!
 AGENT_TOOL_RESOURCES = {
-    "analyst1": { "semantic_model_file": "@TELCO_SAMPLE_DATA.TELCO_DATASET.semantic_models/telco_test_data.yaml" },
+    "analyst1": { "semantic_model_file": "@TELCO_SAMPLE_DATA.TELCO_DATASET.semantic_models/telco_test_data_complete.yaml" },
     "search1": { "name": "telco_search_service", "max_results": 10 },
 }
 
@@ -181,7 +181,11 @@ if st.sidebar.button("Clear Chat History & Log"):
     st.rerun()
 
 # --- Application Title and Header ---
-st.title("❄️ Chat with Cortex Agent")
+title_col1, title_col2 = st.columns([0.07, 0.93])
+with title_col1:
+    st.image("Q Logo 2024.png", width=45)
+with title_col2:
+    st.markdown("<h1 style='margin-top: -10px; margin-left: -15px;'>Chat with Cortex Agent</h1>", unsafe_allow_html=True)
 
 # --- Helper Functions ---
 def filter_messages_for_api(messages):
