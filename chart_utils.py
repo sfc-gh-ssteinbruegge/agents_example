@@ -8,6 +8,7 @@ visualization between different parts of the application.
 import pandas as pd
 import altair as alt
 import streamlit as st
+import pydeck as pdk
 
 
 def create_chart_from_metadata(df):
@@ -21,7 +22,7 @@ def create_chart_from_metadata(df):
         
     Returns:
     --------
-    altair.Chart or None
+    altair.Chart or pydeck.Deck or None
         The created chart object or None if chart couldn't be created
     """
     try:
@@ -31,7 +32,9 @@ def create_chart_from_metadata(df):
         chart_metadata = df.attrs.get('chart_metadata', {})
         
         # Determine which chart type to create based on metadata
-        if 'chart1_columns' in chart_metadata:
+        if 'chart10_columns' in chart_metadata:
+            return create_chart10(df, chart_metadata['chart10_columns'])
+        elif 'chart1_columns' in chart_metadata:
             return create_chart1(df, chart_metadata['chart1_columns'])
         elif 'chart2_columns' in chart_metadata:
             return create_chart2(df, chart_metadata['chart2_columns'])
@@ -418,6 +421,128 @@ def create_chart9(df, cols):
         return None
 
 
+def create_chart10(df, cols):
+    """
+    Create Chart 10: Map Visualization with PyDeck
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        DataFrame with data containing latitude and longitude
+    cols : dict
+        Column configuration with lat_col, lon_col, and optionally color_col and size_col
+        
+    Returns:
+    --------
+    pydeck.Deck
+        PyDeck map visualization with points plotted
+    """
+    try:
+        lat_col = cols.get('lat_col')
+        lon_col = cols.get('lon_col')
+        color_col = cols.get('color_col')
+        size_col = cols.get('size_col')
+        
+        if not lat_col or not lon_col:
+            return None
+            
+        # Calculate center point for initial view state
+        center_lat = df[lat_col].mean()
+        center_lon = df[lon_col].mean()
+        
+        # Prepare data for visualization
+        data = {
+            'latitude': df[lat_col],
+            'longitude': df[lon_col]
+        }
+        
+        # Add color and size if specified
+        if color_col and color_col in df.columns:
+            data['color'] = df[color_col]
+            # If color column is categorical, create a color mapping
+            if not pd.api.types.is_numeric_dtype(df[color_col]):
+                unique_categories = df[color_col].unique()
+                color_scale = {
+                    cat: [
+                        int(255 * (i / len(unique_categories))),
+                        100,
+                        int(255 * (1 - i / len(unique_categories))),
+                        200
+                    ] for i, cat in enumerate(unique_categories)
+                }
+                data['color'] = df[color_col].map(lambda x: color_scale.get(x, [255, 140, 0, 100]))
+            else:
+                # Normalize numeric color values to 0-255 range
+                min_val = df[color_col].min()
+                max_val = df[color_col].max()
+                if min_val != max_val:
+                    data['color'] = df[color_col].apply(lambda x: [
+                        int(255 * (x - min_val) / (max_val - min_val)),
+                        140,
+                        int(255 * (1 - (x - min_val) / (max_val - min_val))),
+                        100
+                    ])
+                else:
+                    data['color'] = [[255, 140, 0, 100]] * len(df)
+        
+        if size_col and size_col in df.columns:
+            data['size'] = df[size_col]
+            # Normalize size values between 100 and 1000
+            min_size = data['size'].min()
+            max_size = data['size'].max()
+            if min_size != max_size:
+                data['size'] = 100 + 900 * (data['size'] - min_size) / (max_size - min_size)
+            else:
+                data['size'] = 300  # Default size if all values are the same
+        
+        map_data = pd.DataFrame(data)
+        
+        # Define the layer
+        layer_props = {
+            "data": map_data,
+            "get_position": "[longitude, latitude]",
+            "get_radius": 300 if not size_col else "size",
+            "get_fill_color": [255, 140, 0, 100] if not color_col else "color",
+            "pickable": True,
+            "opacity": 0.8,
+            "stroked": True,
+            "filled": True,
+            "radius_scale": 3,
+            "radius_min_pixels": 2,
+            "radius_max_pixels": 15,
+        }
+        
+        scatterplot_layer = pdk.Layer("ScatterplotLayer", **layer_props)
+        
+        # Create the deck with US-focused initial view
+        deck = pdk.Deck(
+            layers=[scatterplot_layer],
+            initial_view_state=pdk.ViewState(
+                latitude=center_lat,
+                longitude=center_lon,
+                zoom=11 if abs(center_lat) < 50 and -125 < center_lon < -65 else 4,  # Zoom in more for US locations
+                pitch=0,
+            ),
+            map_style="mapbox://styles/mapbox/light-v9",
+            tooltip={
+                "html": "<b>Latitude:</b> {{latitude}}<br/>"
+                       "<b>Longitude:</b> {{longitude}}<br/>"
+                       + (f"<b>{color_col}:</b> {{{{color}}}}<br/>" if color_col and not isinstance(data.get('color', None), list) else "")
+                       + (f"<b>{size_col}:</b> {{{{size}}}}<br/>" if size_col else ""),
+                "style": {
+                    "backgroundColor": "steelblue",
+                    "color": "white"
+                }
+            }
+        )
+        
+        return deck
+        
+    except Exception as e:
+        print(f"Error creating Chart 10: {str(e)}")
+        return None
+
+
 # Utility functions for common chart operations
 def detect_column_types(df):
     """
@@ -431,16 +556,37 @@ def detect_column_types(df):
     Returns:
     --------
     dict
-        Dictionary with categorized columns (date_cols, numeric_cols, text_cols)
+        Dictionary with categorized columns (date_cols, numeric_cols, text_cols, lat_cols, lon_cols)
     """
     date_cols = [col for col in df.columns if pd.api.types.is_datetime64_any_dtype(df[col])]
     numeric_cols = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])]
-    text_cols = [col for col in df.columns if col not in numeric_cols and col not in date_cols]
+    
+    # Enhanced geographic data detection
+    lat_cols = []
+    lon_cols = []
+    for col in numeric_cols:
+        col_lower = col.lower()
+        # Check for latitude columns
+        if any(lat_term in col_lower for lat_term in ['lat', 'latitude']):
+            # Validate latitude range
+            if df[col].min() >= -90 and df[col].max() <= 90:
+                lat_cols.append(col)
+        # Check for longitude columns
+        elif any(lon_term in col_lower for lon_term in ['lon', 'long', 'longitude']):
+            # Validate longitude range
+            if df[col].min() >= -180 and df[col].max() <= 180:
+                lon_cols.append(col)
+    
+    # Remove lat/lon columns from numeric_cols to avoid double counting
+    numeric_cols = [col for col in numeric_cols if col not in lat_cols and col not in lon_cols]
+    text_cols = [col for col in df.columns if col not in numeric_cols + date_cols + lat_cols + lon_cols]
     
     return {
         'date_cols': date_cols,
         'numeric_cols': numeric_cols,
-        'text_cols': text_cols
+        'text_cols': text_cols,
+        'lat_cols': lat_cols,
+        'lon_cols': lon_cols
     }
 
 
@@ -462,9 +608,15 @@ def suggest_chart_type(df):
     date_cols = col_types['date_cols']
     numeric_cols = col_types['numeric_cols']
     text_cols = col_types['text_cols']
+    lat_cols = col_types['lat_cols']
+    lon_cols = col_types['lon_cols']
+    
+    # Chart 10: Check for latitude and longitude columns first
+    if len(lat_cols) >= 1 and len(lon_cols) >= 1:
+        return 'chart10'
     
     # Chart 1: Single date column, single numeric column
-    if len(date_cols) == 1 and len(numeric_cols) == 1 and len(text_cols) == 0:
+    elif len(date_cols) == 1 and len(numeric_cols) == 1 and len(text_cols) == 0:
         return 'chart1'
         
     # Chart 2: Single date column, multiple numeric columns
@@ -726,6 +878,84 @@ def generate_chart_code_for_dataframe(df):
                 print(f"        y=alt.Y(f\"{numeric_col}:Q\"),", file=buf)
                 print(f"        tooltip=[selected_text_col, '{numeric_col}']", file=buf)
                 print(f"    ).properties(title='Bar Chart with Selectable X-Axis')", file=buf)
+        
+        elif 'chart10_columns' in chart_metadata:
+            cols = chart_metadata['chart10_columns']
+            lat_col = cols.get('lat_col')
+            lon_col = cols.get('lon_col')
+            color_col = cols.get('color_col')
+            size_col = cols.get('size_col')
+            
+            if not lat_col or not lon_col:
+                print(f"    # Error: Missing required columns for chart10", file=buf)
+                print(f"    st.error('Missing required columns for Map Visualization with PyDeck')", file=buf)
+                print(f"    return None", file=buf)
+            else:
+                print(f"    # Calculate center point for initial view state", file=buf)
+                print(f"    center_lat = df[lat_col].mean()", file=buf)
+                print(f"    center_lon = df[lon_col].mean()", file=buf)
+                print(f"", file=buf)
+                print(f"    # Prepare data for visualization", file=buf)
+                print(f"    data = {{", file=buf)
+                print(f"        'latitude': df[lat_col],", file=buf)
+                print(f"        'longitude': df[lon_col]", file=buf)
+                print(f"    }}", file=buf)
+                print(f"", file=buf)
+                print(f"    # Add color and size if specified", file=buf)
+                print(f"    if color_col and color_col in df.columns:", file=buf)
+                print(f"        data['color'] = df[color_col]", file=buf)
+                print(f"    if size_col and size_col in df.columns:", file=buf)
+                print(f"        data['size'] = df[size_col]", file=buf)
+                print(f"        # Normalize size values between 100 and 1000", file=buf)
+                print(f"        min_size = data['size'].min()", file=buf)
+                print(f"        max_size = data['size'].max()", file=buf)
+                print(f"        if min_size != max_size:", file=buf)
+                print(f"            data['size'] = 100 + 900 * (data['size'] - min_size) / (max_size - min_size)", file=buf)
+                print(f"        else:", file=buf)
+                print(f"            data['size'] = 300  # Default size if all values are the same", file=buf)
+                print(f"", file=buf)
+                print(f"    map_data = pd.DataFrame(data)", file=buf)
+                print(f"", file=buf)
+                print(f"    # Define the layer", file=buf)
+                print(f"    layer_props = {{", file=buf)
+                print(f"        \"data\": map_data,", file=buf)
+                print(f"        \"get_position\": f\"[longitude, latitude]\",", file=buf)
+                print(f"        \"get_radius\": 300 if not size_col else \"size\",", file=buf)
+                print(f"        \"get_fill_color\": [255, 140, 0, 100] if not color_col else \"color\",", file=buf)
+                print(f"        \"pickable\": True,", file=buf)
+                print(f"        \"opacity\": 0.8,", file=buf)
+                print(f"        \"stroked\": True,", file=buf)
+                print(f"        \"filled\": True,", file=buf)
+                print(f"        \"radius_scale\": 3,", file=buf)
+                print(f"        \"radius_min_pixels\": 2,", file=buf)
+                print(f"        \"radius_max_pixels\": 15,", file=buf)
+                print(f"    }}", file=buf)
+                print(f"", file=buf)
+                print(f"    scatterplot_layer = pdk.Layer(\"ScatterplotLayer\", **layer_props)", file=buf)
+                print(f"", file=buf)
+                print(f"    # Create the deck", file=buf)
+                print(f"    deck = pdk.Deck(", file=buf)
+                print(f"        layers=[scatterplot_layer],", file=buf)
+                print(f"        initial_view_state=pdk.ViewState(", file=buf)
+                print(f"            latitude=center_lat,", file=buf)
+                print(f"            longitude=center_lon,", file=buf)
+                print(f"            zoom=11 if abs(center_lat) < 50 and -125 < center_lon < -65 else 4,  # Zoom in more for US locations", file=buf)
+                print(f"            pitch=0,", file=buf)
+                print(f"        ),", file=buf)
+                print(f"        map_style=\"mapbox://styles/mapbox/light-v9\",", file=buf)
+                print(f"        tooltip={{", file=buf)
+                print(f"            \"html\": \"<b>Latitude:</b> {{latitude}}<br/>\"", file=buf)
+                print(f"               \"<b>Longitude:</b> {{longitude}}<br/>\"", file=buf)
+                print(f"               + (f\"<b>{color_col}:</b> {{{{color}}}}<br/>\" if color_col and not isinstance(data.get('color', None), list) else \"\")", file=buf)
+                print(f"               + (f\"<b>{size_col}:</b> {{{{size}}}}<br/>\" if size_col else \"\"),", file=buf)
+                print(f"            \"style\": {{", file=buf)
+                print(f"                \"backgroundColor\": \"steelblue\",", file=buf)
+                print(f"                \"color\": \"white\"", file=buf)
+                print(f"            }}", file=buf)
+                print(f"        )", file=buf)
+                print(f"    )", file=buf)
+                print(f"", file=buf)
+                print(f"    return deck", file=buf)
         
         else:
             # No specific chart type identified in metadata

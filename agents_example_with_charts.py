@@ -11,6 +11,7 @@ from datetime import datetime # For debug log timestamps
 from typing import Generator #, Tuple, List, Any # Import Generator and other types
 from sseclient import SSEClient # For parsing Server-Sent Events
 import altair as alt # For chart creation
+import pydeck as pdk # For PyDeck deck creation
 
 # Import chart utilities
 from chart_utils import (
@@ -24,11 +25,29 @@ from chart_utils import (
     create_chart6,
     create_chart7,
     create_chart8,
-    create_chart9
+    create_chart9,
+    create_chart10
 )
 
 # Set page title and icon
 st.set_page_config(page_title="Cortex Agent Chat (Standalone)", page_icon="❄️", layout="wide")
+
+#  ─── HIDE STREAMLIT UI ─────────────────────────────────────────────────────
+
+st.markdown(
+    """
+    <style>
+      /* hide the "hamburger" menu in the top-right */
+      #MainMenu { visibility: hidden !important; }
+      /* hide the "Made with Streamlit" footer bar */
+      footer { visibility: hidden !important; }
+      /* optionally reclaim that footer space */
+      .css-18e3th9 { padding-bottom: 0 !important; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+#  ────────────────────────────────────────────────────────────────────────────
 
 SNOWFLAKE_ACCOUNT = st.secrets["SNOWFLAKE_ACCOUNT"] # e.g., xy12345.us-west-2
 SNOWFLAKE_USER = st.secrets["SNOWFLAKE_USER"]
@@ -51,6 +70,9 @@ MODEL_NAME = 'claude-3-5-sonnet'
 # Citation/Reltaed Queries regex
 RELATED_QUERIES_REGEX = r"Related query:\s*(.*?)\s*Answer:\s*(.*?)(?=\nRelated query:|\n*$)"
 CITATION_REGEX = r"【†(\d+)†】"
+
+# Keywords for detecting sample requests
+SAMPLE_KEYWORDS = ['sample', 'example', 'show me some', 'give me some', 'few examples']
 
 # Define Tools
 CORTEX_ANALYST_TOOL_DEF = { "tool_spec": { "type": "cortex_analyst_text_to_sql", "name": "analyst1" } }
@@ -454,7 +476,7 @@ def call_agent_api(messages_to_send: list, call_label: str) -> requests.Response
         add_log("ERROR", f"Unexpected error during {call_label} API call: {e}")
         return None
 
-def create_best_chart(df: pd.DataFrame) -> alt.Chart:
+def create_best_chart(df: pd.DataFrame) -> alt.Chart | pdk.Deck:
     """
     Analyze the DataFrame and create the most appropriate chart based on its structure.
     """
@@ -464,6 +486,23 @@ def create_best_chart(df: pd.DataFrame) -> alt.Chart:
         date_cols = col_types['date_cols']
         numeric_cols = col_types['numeric_cols']
         text_cols = col_types['text_cols']
+        lat_cols = col_types['lat_cols']
+        lon_cols = col_types['lon_cols']
+        
+        # First check for geographic data (lat/long)
+        if len(lat_cols) >= 1 and len(lon_cols) >= 1:
+            # Find additional columns for color/size if available
+            potential_color_cols = [col for col in text_cols if any(term in col.lower() for term in ['status', 'type', 'category', 'segment'])]
+            potential_size_cols = [col for col in numeric_cols if any(term in col.lower() for term in ['amount', 'value', 'revenue', 'count'])]
+            
+            map_config = {
+                'lat_col': lat_cols[0],
+                'lon_col': lon_cols[0],
+                'color_col': potential_color_cols[0] if potential_color_cols else None,
+                'size_col': potential_size_cols[0] if potential_size_cols else None
+            }
+            
+            return create_chart10(df, map_config)
         
         # Special handling for count/aggregation data with categorical breakdowns
         count_keywords = ['count', 'total', 'number', 'qty', 'quantity']
@@ -731,8 +770,10 @@ def display_chart(chart_data, message_index, is_new=False):
     if not is_new and state_key in st.session_state.visualization_states:
         stored_state = st.session_state.visualization_states[state_key]
         
-        # Display only the chart without controls
-        if stored_state.get('chart'):
+        # Display the chart based on its type
+        if isinstance(stored_state.get('chart'), pdk.Deck):
+            st.pydeck_chart(stored_state['chart'])
+        elif stored_state.get('chart'):
             st.altair_chart(stored_state['chart'], use_container_width=True)
         else:
             st.info("Could not create a visualization for this data structure.")
@@ -747,9 +788,11 @@ def display_chart(chart_data, message_index, is_new=False):
             'data': chart_data['data'].copy()
         }
     
-    # Display the chart
+    # Display the chart based on its type
     current_chart = st.session_state[f"chart_data_{chart_id}"]['chart']
-    if current_chart:
+    if isinstance(current_chart, pdk.Deck):
+        st.pydeck_chart(current_chart)
+    elif current_chart:
         st.altair_chart(current_chart, use_container_width=True)
     else:
         st.info("Could not create a visualization for this data structure.")
@@ -759,6 +802,11 @@ def display_chart(chart_data, message_index, is_new=False):
         st.session_state.visualization_states[state_key] = {
             'chart': current_chart
         }
+
+def is_sample_request(query: str) -> bool:
+    """Check if the query is asking for a sample or example of data."""
+    query_lower = query.lower()
+    return any(keyword in query_lower for keyword in SAMPLE_KEYWORDS)
 
 # --- Core Chat Logic ---
 
@@ -829,20 +877,31 @@ for i, message in enumerate(st.session_state.messages):
                         for content in response_content:
                             st.markdown(content["text"])
                         
-                        # Display chart if present
-                        if chart_data:
+                        # Display table if present
+                        if table_part:
+                            # Check if this was a sample request
+                            is_sample = False
+                            if i < len(st.session_state.messages):
+                                is_sample = is_sample_request(st.session_state.messages[i]["content"][0]["text"])
+                            
+                            if is_sample:
+                                # For sample data, display table directly
+                                st.markdown(table_part.get("tableMarkdown"))
+                            else:
+                                # For non-sample data, use expander
+                                with st.expander("View result table", expanded=False):
+                                    st.markdown(table_part.get("tableMarkdown"))
+                        
+                        # Display chart if present and not a sample request
+                        if chart_data and not is_sample:
                             st.markdown("---")
-                            viz_tab, results_tab = st.tabs([f"Visualization {chart_data['id']}", f"Results {chart_data['id']}"])
+                            viz_tab, data_tab = st.tabs([f"Visualization {chart_data['id']}", f"Data {chart_data['id']}"])
                             
                             with viz_tab:
                                 display_chart(chart_data, i, is_new=False)
                             
-                            with results_tab:
-                                data_tab, sql_tab = st.tabs(["Data", "SQL"])
-                                with data_tab:
-                                    st.dataframe(chart_data['data'])
-                                with sql_tab:
-                                    st.code(chart_data['query'], language="sql")
+                            with data_tab:
+                                st.dataframe(chart_data['data'])
                         
                         # Display other non-text content
                         if non_text_parts:
@@ -864,23 +923,29 @@ for i, message in enumerate(st.session_state.messages):
                         
                         # Display table if present
                         if table_part:
-                            with st.expander("View result table", expanded=False):
+                            # Check if this was a sample request
+                            is_sample = False
+                            if i < len(st.session_state.messages):
+                                is_sample = is_sample_request(st.session_state.messages[i]["content"][0]["text"])
+                            
+                            if is_sample:
+                                # For sample data, display table directly
                                 st.markdown(table_part.get("tableMarkdown"))
+                            else:
+                                # For non-sample data, use expander
+                                with st.expander("View result table", expanded=False):
+                                    st.markdown(table_part.get("tableMarkdown"))
                         
-                        # Display chart if present
-                        if chart_data:
+                        # Display chart if present and not a sample request
+                        if chart_data and not is_sample:
                             st.markdown("---")
-                            viz_tab, results_tab = st.tabs([f"Visualization {chart_data['id']}", f"Results {chart_data['id']}"])
+                            viz_tab, data_tab = st.tabs([f"Visualization {chart_data['id']}", f"Data {chart_data['id']}"])
                             
                             with viz_tab:
                                 display_chart(chart_data, i, is_new=False)
                             
-                            with results_tab:
-                                data_tab, sql_tab = st.tabs(["Data", "SQL"])
-                                with data_tab:
-                                    st.dataframe(chart_data['data'])
-                                with sql_tab:
-                                    st.code(chart_data['query'], language="sql")
+                            with data_tab:
+                                st.dataframe(chart_data['data'])
                         
                         # Display other non-text content
                         if non_text_parts:
@@ -899,22 +964,28 @@ for i, message in enumerate(st.session_state.messages):
                     add_log("WARN", f"Error displaying SQL from history: {e}")
             
             if table_part:
-                with st.expander("View result table", expanded=False):
+                # Check if this was a sample request
+                is_sample = False
+                if i < len(st.session_state.messages):
+                    is_sample = is_sample_request(st.session_state.messages[i]["content"][0]["text"])
+                
+                if is_sample:
+                    # For sample data, display table directly
                     st.markdown(table_part.get("tableMarkdown"))
+                else:
+                    # For non-sample data, use expander
+                    with st.expander("View result table", expanded=False):
+                        st.markdown(table_part.get("tableMarkdown"))
             
             if chart_data:
                 st.markdown("---")
-                viz_tab, results_tab = st.tabs([f"Visualization {chart_data['id']}", f"Results {chart_data['id']}"])
+                viz_tab, data_tab = st.tabs([f"Visualization {chart_data['id']}", f"Data {chart_data['id']}"])
                 
                 with viz_tab:
                     display_chart(chart_data, i, is_new=False)
                 
-                with results_tab:
-                    data_tab, sql_tab = st.tabs(["Data", "SQL"])
-                    with data_tab:
-                        st.dataframe(chart_data['data'])
-                    with sql_tab:
-                        st.code(chart_data['query'], language="sql")
+                with data_tab:
+                    st.dataframe(chart_data['data'])
             
             if non_text_parts:
                 display_non_text_content(non_text_parts, "\n".join([r["text"] for r in response_content]), message_key_prefix=f"msg_{i}")
@@ -1029,18 +1100,23 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
                                 result_id = f"result_{len(st.session_state.messages)}"
                                 chart_id = f"chart_{len(st.session_state.charts)}"
                                 
-                                # Store the DataFrame and create chart
-                                chart = create_best_chart(sql_dataframe_result)
-                                if chart:
-                                    # When creating a new chart, store the message index
-                                    st.session_state.charts.append({
-                                        'id': chart_id,
-                                        'chart': chart,
-                                        'data': sql_dataframe_result,
-                                        'query': sql_to_execute,
-                                        'result_id': result_id,  # Link to the result
-                                        'message_index': len(st.session_state.messages) - 1  # Store the message index
-                                    })
+                                # Check if this is a sample request
+                                is_sample = is_sample_request(st.session_state.messages[-1]["content"][0]["text"])
+                                
+                                # Create chart only if not a sample request
+                                chart = None
+                                if not is_sample:
+                                    chart = create_best_chart(sql_dataframe_result)
+                                    if chart:
+                                        # When creating a new chart, store the message index
+                                        st.session_state.charts.append({
+                                            'id': chart_id,
+                                            'chart': chart,
+                                            'data': sql_dataframe_result,
+                                            'query': sql_to_execute,
+                                            'result_id': result_id,  # Link to the result
+                                            'message_index': len(st.session_state.messages) - 1  # Store the message index
+                                        })
                                 
                                 # Initialize expander states if not exists
                                 if result_id not in st.session_state.table_expander_states:
@@ -1048,27 +1124,31 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
                                 if chart_id not in st.session_state.chart_expander_states:
                                     st.session_state.chart_expander_states[chart_id] = True
                                 
-                                # Create tabs for different views - new results show visualization first
-                                viz_tab, results_tab = st.tabs(["Visualization", "Results"])
-                                
-                                with results_tab:
-                                    # Create sub-tabs for data and SQL
-                                    data_tab, sql_tab = st.tabs(["Data", "SQL"])
+                                # Display current results
+                                if is_sample:
+                                    # For sample requests, only show the data table
+                                    st.dataframe(sql_dataframe_result)
+                                    # Store the table for history
+                                    table_markdown = sql_dataframe_result.to_markdown(index=False)
+                                    final_history_content.append({"type": "fetched_table", "tableMarkdown": table_markdown, "toolResult": True})
+                                else:
+                                    # Create tabs for visualization and data
+                                    viz_tab, data_tab = st.tabs(["Visualization", "Data"])
+                                    
                                     with data_tab:
                                         st.dataframe(sql_dataframe_result)
-                                    with sql_tab:
-                                        st.code(sql_to_execute, language="sql")
-                                
-                                with viz_tab:
-                                    # Calculate current message index
-                                    current_msg_index = len(st.session_state.messages) - 1
-                                    chart_data = {
-                                        'id': chart_id,
-                                        'chart': chart,
-                                        'data': sql_dataframe_result,
-                                        'query': sql_to_execute
-                                    }
-                                    display_chart(chart_data, current_msg_index, is_new=True)
+                                    
+                                    with viz_tab:
+                                        # Calculate current message index
+                                        current_msg_index = len(st.session_state.messages) - 1
+                                        if chart:
+                                            chart_data = {
+                                                'id': chart_id,
+                                                'chart': chart,
+                                                'data': sql_dataframe_result,
+                                                'query': sql_to_execute
+                                            }
+                                            display_chart(chart_data, current_msg_index, is_new=True)
 
                             sql_exec_success = True # Mark SQL success
                             add_log("INFO", f"SQL executed (Query ID: {query_id}). Making 2nd API call.")
