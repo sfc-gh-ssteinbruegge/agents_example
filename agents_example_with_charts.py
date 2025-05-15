@@ -68,6 +68,24 @@ hide_streamlit_style = """
     .css-18e3th9 {padding: 2rem 1rem !important;}
     .css-1d391kg {padding-top: 0 !important;}
     .block-container {padding-top: 0 !important;}
+
+    /* Hide embedded app footer */
+    .element-container iframe {display: none !important;}
+    .stMarkdown iframe {display: none !important;}
+    div[class*="stMarkdownContainer"] iframe {display: none !important;}
+    .streamlit-embedded iframe {display: none !important;}
+    [data-testid="stAppViewContainer"] iframe {display: none !important;}
+    .stApp [data-testid="stFooter"] {display: none !important;}
+    .stApp [data-testid="stFooter"] > div {display: none !important;}
+    .stApp [data-testid="stFooter"] > div:first-child {display: none !important;}
+    .stApp [data-testid="stFooter"] > div:last-child {display: none !important;}
+    
+    /* Additional footer hiding */
+    section[data-testid="stFooter"] {display: none !important;}
+    .stFooter {display: none !important;}
+    footer[class^="css"] {display: none !important;}
+    footer[class*="st"] {display: none !important;}
+    div[class*="stFooter"] {display: none !important;}
 </style>
 """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
@@ -82,6 +100,18 @@ st.markdown("""
     .css-14xtw13 {visibility: hidden;}
     section[data-testid="stSidebar"] .css-ng1t4o {width: auto !important;}
     .css-18e3th9 {padding-top: 0 !important;}
+    
+    /* Additional embedded footer hiding */
+    .embedded-streamlit-footer {display: none !important;}
+    .streamlit-embedded-footer {display: none !important;}
+    [data-testid="stFooter"] {display: none !important;}
+    [data-testid="stFooter"] > div {display: none !important;}
+    [data-testid="stFooter"] > div > a {display: none !important;}
+    [data-testid="stFooter"] > div > div {display: none !important;}
+    
+    /* Target iframe containers */
+    div:has(> iframe) {display: none !important;}
+    div:has(> div > iframe) {display: none !important;}
 </style>
 """, unsafe_allow_html=True)
 
