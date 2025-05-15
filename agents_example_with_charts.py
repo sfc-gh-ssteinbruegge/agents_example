@@ -89,7 +89,7 @@ AGENT_TOOLS = [
 # Define Tool Resources, ensure paths/names are valid in your Snowflake account)
 # !!! IMPORTANT: Replace placeholder values below !!!
 AGENT_TOOL_RESOURCES = {
-    "analyst1": { "semantic_model_file": "@TELCO_SAMPLE_DATA.TELCO_DATASET.semantic_models/telco_test_data_complete.yaml" },
+    "analyst1": { "semantic_model_file": "@TELCO_SAMPLE_DATA.TELCO_DATASET.semantic_models/telco_test_data.yaml" },
     "search1": { "name": "telco_search_service", "max_results": 10 },
 }
 
