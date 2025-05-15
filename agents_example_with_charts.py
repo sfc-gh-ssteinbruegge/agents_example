@@ -42,23 +42,23 @@ st.set_page_config(
 hide_streamlit_style = """
 <style>
     /* Hide main menu button */
-    #MainMenu {visibility: hidden;}
+    #MainMenu {visibility: hidden !important;}
     
-    /* Hide footer */
-    header {visibility: hidden;}
-    footer {visibility: hidden !important;}
+    /* Hide header and all footer variations */
+    header {visibility: hidden !important;}
+    footer {visibility: hidden !important; display: none !important;}
     
-    /* Hide all footer variations */
-    .reportview-container .main footer {visibility: hidden !important;}
-    .stApp footer {display: none !important;}
-    footer:after {visibility: hidden !important;}
+    /* Hide all footer variations with maximum specificity */
+    .reportview-container .main footer {visibility: hidden !important; display: none !important;}
+    .stApp footer {visibility: hidden !important; display: none !important;}
+    footer:after {visibility: hidden !important; display: none !important;}
     iframe {display: none !important;}
     
     /* Hide specific elements */
     .viewerBadge_container__1QSob {display: none !important;}
     .stDeployButton {display: none !important;}
     .styles_viewerBadge__1QSob {display: none !important;}
-    div[data-testid="stFooter"] {display: none !important;}
+    div[data-testid="stFooter"] {visibility: hidden !important; display: none !important;}
     div[data-testid="stToolbar"] {display: none !important;}
     div[data-testid="stDecoration"] {display: none !important;}
     div[data-testid="stStatusWidget"] {display: none !important;}
@@ -69,23 +69,35 @@ hide_streamlit_style = """
     .css-1d391kg {padding-top: 0 !important;}
     .block-container {padding-top: 0 !important;}
 
-    /* Hide embedded app footer */
+    /* Hide embedded app footer with maximum specificity */
     .element-container iframe {display: none !important;}
     .stMarkdown iframe {display: none !important;}
     div[class*="stMarkdownContainer"] iframe {display: none !important;}
     .streamlit-embedded iframe {display: none !important;}
     [data-testid="stAppViewContainer"] iframe {display: none !important;}
-    .stApp [data-testid="stFooter"] {display: none !important;}
-    .stApp [data-testid="stFooter"] > div {display: none !important;}
-    .stApp [data-testid="stFooter"] > div:first-child {display: none !important;}
-    .stApp [data-testid="stFooter"] > div:last-child {display: none !important;}
     
-    /* Additional footer hiding */
-    section[data-testid="stFooter"] {display: none !important;}
-    .stFooter {display: none !important;}
-    footer[class^="css"] {display: none !important;}
-    footer[class*="st"] {display: none !important;}
-    div[class*="stFooter"] {display: none !important;}
+    /* Target Streamlit's footer container and its children */
+    .stApp [data-testid="stFooter"] {visibility: hidden !important; display: none !important;}
+    .stApp [data-testid="stFooter"] > div {visibility: hidden !important; display: none !important;}
+    .stApp [data-testid="stFooter"] > div:first-child {visibility: hidden !important; display: none !important;}
+    .stApp [data-testid="stFooter"] > div:last-child {visibility: hidden !important; display: none !important;}
+    
+    /* Additional footer hiding with high specificity */
+    section[data-testid="stFooter"] {visibility: hidden !important; display: none !important;}
+    .stFooter {visibility: hidden !important; display: none !important;}
+    footer[class^="css"] {visibility: hidden !important; display: none !important;}
+    footer[class*="st"] {visibility: hidden !important; display: none !important;}
+    div[class*="stFooter"] {visibility: hidden !important; display: none !important;}
+    
+    /* Target any elements that might contain the footer */
+    div:has(> footer) {visibility: hidden !important; display: none !important;}
+    div:has(> div > footer) {visibility: hidden !important; display: none !important;}
+    div:has(> [data-testid="stFooter"]) {visibility: hidden !important; display: none !important;}
+    
+    /* Hide any remaining Streamlit branding */
+    .stApp > footer {visibility: hidden !important; display: none !important;}
+    .stApp footer[class*="css"] {visibility: hidden !important; display: none !important;}
+    .stApp div[data-testid="stFooter"] {visibility: hidden !important; display: none !important;}
 </style>
 """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
@@ -93,25 +105,39 @@ st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 # Additional configuration to hide deployment and other buttons
 st.markdown("""
 <style>
+    /* Hide header and footer with maximum specificity */
     .stApp > header {display: none !important;}
     .stApp > footer {display: none !important;}
-    .css-1rs6os {visibility: hidden;}
-    .css-17ziqus {visibility: hidden;}
-    .css-14xtw13 {visibility: hidden;}
+    
+    /* Hide various UI elements */
+    .css-1rs6os {visibility: hidden !important;}
+    .css-17ziqus {visibility: hidden !important;}
+    .css-14xtw13 {visibility: hidden !important;}
     section[data-testid="stSidebar"] .css-ng1t4o {width: auto !important;}
     .css-18e3th9 {padding-top: 0 !important;}
     
-    /* Additional embedded footer hiding */
-    .embedded-streamlit-footer {display: none !important;}
-    .streamlit-embedded-footer {display: none !important;}
-    [data-testid="stFooter"] {display: none !important;}
-    [data-testid="stFooter"] > div {display: none !important;}
-    [data-testid="stFooter"] > div > a {display: none !important;}
-    [data-testid="stFooter"] > div > div {display: none !important;}
+    /* Additional embedded footer hiding with maximum specificity */
+    .embedded-streamlit-footer {visibility: hidden !important; display: none !important;}
+    .streamlit-embedded-footer {visibility: hidden !important; display: none !important;}
+    [data-testid="stFooter"] {visibility: hidden !important; display: none !important;}
+    [data-testid="stFooter"] > div {visibility: hidden !important; display: none !important;}
+    [data-testid="stFooter"] > div > a {visibility: hidden !important; display: none !important;}
+    [data-testid="stFooter"] > div > div {visibility: hidden !important; display: none !important;}
     
-    /* Target iframe containers */
-    div:has(> iframe) {display: none !important;}
-    div:has(> div > iframe) {display: none !important;}
+    /* Target iframe containers with maximum specificity */
+    div:has(> iframe) {visibility: hidden !important; display: none !important;}
+    div:has(> div > iframe) {visibility: hidden !important; display: none !important;}
+    
+    /* Additional selectors for footer elements */
+    .stApp footer.css-qbe2hs {visibility: hidden !important; display: none !important;}
+    footer.css-qbe2hs {visibility: hidden !important; display: none !important;}
+    div[class*="stFooter"] {visibility: hidden !important; display: none !important;}
+    div[data-testid="stFooter"] {visibility: hidden !important; display: none !important;}
+    
+    /* Hide any elements that contain footers */
+    *:has(> footer) {visibility: hidden !important; display: none !important;}
+    *:has(> div > footer) {visibility: hidden !important; display: none !important;}
+    *:has(> [data-testid="stFooter"]) {visibility: hidden !important; display: none !important;}
 </style>
 """, unsafe_allow_html=True)
 
