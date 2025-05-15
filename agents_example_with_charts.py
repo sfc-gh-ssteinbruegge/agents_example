@@ -46,17 +46,29 @@ st.markdown(
       .stDeployButton { display: none !important; }
       .viewerBadge_container__1QSob { display: none !important; }
       
+      /* hide specific footer elements */
+      .element-container:has(iframe[title="streamlit_elements.core.Elements"]) { display: none !important; }
+      .stApp footer { display: none !important; }
+      footer[data-testid="stFooter"] { display: none !important; }
+      .streamlit-footer { display: none !important; }
+      .streamlit-footer-item { display: none !important; }
+      
       /* optionally reclaim the footer space */
       .css-18e3th9 { padding-bottom: 0 !important; }
       
-      /* hide "Made with Streamlit" */
+      /* hide "Made with/Built with Streamlit" */
       .styles_viewerBadge__1QSob { display: none !important; }
+      div[data-testid="stFooter"] { display: none !important; }
       
       /* hide GitHub star button */
       .css-1jc7ptx, .e1ewe7hr3, .viewerBadge_link__1QSob { display: none !important; }
       
       /* hide deployment button */
       .css-1vq4p4l.e1fqkh3o4 { display: none !important; }
+      
+      /* hide fullscreen button */
+      button[title="View fullscreen"] { display: none !important; }
+      .fullScreenFrame { display: none !important; }
     </style>
     """,
     unsafe_allow_html=True,
