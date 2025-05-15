@@ -98,6 +98,32 @@ hide_streamlit_style = """
     .stApp > footer {visibility: hidden !important; display: none !important;}
     .stApp footer[class*="css"] {visibility: hidden !important; display: none !important;}
     .stApp div[data-testid="stFooter"] {visibility: hidden !important; display: none !important;}
+    
+    /* Specifically target "Built with Streamlit" in embedded mode */
+    .element-container:has(a[href="https://streamlit.io"]) {display: none !important; visibility: hidden !important;}
+    .element-container:has(a[href*="streamlit.io"]) {display: none !important; visibility: hidden !important;}
+    a[href="https://streamlit.io"] {display: none !important; visibility: hidden !important;}
+    a[href*="streamlit.io"] {display: none !important; visibility: hidden !important;}
+    
+    /* Target embedded mode footer specifically */
+    .stApp.embedded [data-testid="stFooter"] {display: none !important; visibility: hidden !important;}
+    .embedded [data-testid="stFooter"] {display: none !important; visibility: hidden !important;}
+    .embedded footer {display: none !important; visibility: hidden !important;}
+    .embedded .element-container:last-child {display: none !important; visibility: hidden !important;}
+    
+    /* Target Streamlit branding elements */
+    img[alt*="streamlit"] {display: none !important; visibility: hidden !important;}
+    .streamlit-footer {display: none !important; visibility: hidden !important;}
+    .streamlit-branding {display: none !important; visibility: hidden !important;}
+    
+    /* Hide last element container which often contains the footer in embedded mode */
+    .stApp > div:last-child > .element-container:last-child {display: none !important; visibility: hidden !important;}
+    .stApp > section > div:last-child > .element-container:last-child {display: none !important; visibility: hidden !important;}
+    
+    /* Target common footer container classes in embedded mode */
+    .css-1q1n0ol {display: none !important; visibility: hidden !important;}
+    .css-1ope8sv {display: none !important; visibility: hidden !important;}
+    .css-1vencpc {display: none !important; visibility: hidden !important;}
 </style>
 """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
@@ -138,6 +164,25 @@ st.markdown("""
     *:has(> footer) {visibility: hidden !important; display: none !important;}
     *:has(> div > footer) {visibility: hidden !important; display: none !important;}
     *:has(> [data-testid="stFooter"]) {visibility: hidden !important; display: none !important;}
+    
+    /* Additional embedded mode footer hiding */
+    .embedded .stApp footer {display: none !important; visibility: hidden !important;}
+    .embedded .stApp [data-testid="stFooter"] {display: none !important; visibility: hidden !important;}
+    .embedded .stApp .element-container:last-child {display: none !important; visibility: hidden !important;}
+    
+    /* Target "Built with Streamlit" specifically */
+    div:has(> a[href*="streamlit.io"]) {display: none !important; visibility: hidden !important;}
+    div:has(> div > a[href*="streamlit.io"]) {display: none !important; visibility: hidden !important;}
+    .element-container:has(a[href*="streamlit.io"]) {display: none !important; visibility: hidden !important;}
+    
+    /* Hide any remaining branding elements */
+    .stMarkdown div a[href*="streamlit.io"] {display: none !important; visibility: hidden !important;}
+    div:has(> img[alt*="streamlit"]) {display: none !important; visibility: hidden !important;}
+    
+    /* Target common footer container classes in embedded mode */
+    .css-1q1n0ol {display: none !important; visibility: hidden !important;}
+    .css-1ope8sv {display: none !important; visibility: hidden !important;}
+    .css-1vencpc {display: none !important; visibility: hidden !important;}
 </style>
 """, unsafe_allow_html=True)
 
