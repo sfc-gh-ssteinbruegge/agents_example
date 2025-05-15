@@ -39,10 +39,24 @@ st.markdown(
     <style>
       /* hide the "hamburger" menu in the top-right */
       #MainMenu { visibility: hidden !important; }
-      /* hide the "Made with Streamlit" footer bar */
+      
+      /* hide all Streamlit footer items */
       footer { visibility: hidden !important; }
-      /* optionally reclaim that footer space */
+      footer:after { visibility: hidden !important; }
+      .stDeployButton { display: none !important; }
+      .viewerBadge_container__1QSob { display: none !important; }
+      
+      /* optionally reclaim the footer space */
       .css-18e3th9 { padding-bottom: 0 !important; }
+      
+      /* hide "Made with Streamlit" */
+      .styles_viewerBadge__1QSob { display: none !important; }
+      
+      /* hide GitHub star button */
+      .css-1jc7ptx, .e1ewe7hr3, .viewerBadge_link__1QSob { display: none !important; }
+      
+      /* hide deployment button */
+      .css-1vq4p4l.e1fqkh3o4 { display: none !important; }
     </style>
     """,
     unsafe_allow_html=True,
