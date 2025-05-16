@@ -889,8 +889,18 @@ for i, message in enumerate(st.session_state.messages):
                                 is_sample = is_sample_request(st.session_state.messages[i]["content"][0]["text"])
                             
                             if is_sample:
-                                # For sample data, display table directly
-                                st.markdown(table_part.get("tableMarkdown"))
+                                # For sample data, display table directly using st.dataframe
+                                try:
+                                    # Convert markdown table back to dataframe
+                                    import io
+                                    import pandas as pd
+                                    table_text = table_part.get("tableMarkdown", "")
+                                    df = pd.read_table(io.StringIO(table_text), sep='|', skiprows=[1], engine='python')
+                                    df.columns = [col.strip() for col in df.columns]  # Clean column names
+                                    st.dataframe(df)
+                                except Exception as e:
+                                    # Fallback to markdown if conversion fails
+                                    st.markdown(table_part.get("tableMarkdown"))
                             else:
                                 # For non-sample data, use expander
                                 with st.expander("View result table", expanded=False):
@@ -933,8 +943,18 @@ for i, message in enumerate(st.session_state.messages):
                                 is_sample = is_sample_request(st.session_state.messages[i]["content"][0]["text"])
                             
                             if is_sample:
-                                # For sample data, display table directly
-                                st.markdown(table_part.get("tableMarkdown"))
+                                # For sample data, display table directly using st.dataframe
+                                try:
+                                    # Convert markdown table back to dataframe
+                                    import io
+                                    import pandas as pd
+                                    table_text = table_part.get("tableMarkdown", "")
+                                    df = pd.read_table(io.StringIO(table_text), sep='|', skiprows=[1], engine='python')
+                                    df.columns = [col.strip() for col in df.columns]  # Clean column names
+                                    st.dataframe(df)
+                                except Exception as e:
+                                    # Fallback to markdown if conversion fails
+                                    st.markdown(table_part.get("tableMarkdown"))
                             else:
                                 # For non-sample data, use expander
                                 with st.expander("View result table", expanded=False):
@@ -974,8 +994,18 @@ for i, message in enumerate(st.session_state.messages):
                     is_sample = is_sample_request(st.session_state.messages[i]["content"][0]["text"])
                 
                 if is_sample:
-                    # For sample data, display table directly
-                    st.markdown(table_part.get("tableMarkdown"))
+                    # For sample data, display table directly using st.dataframe
+                    try:
+                        # Convert markdown table back to dataframe
+                        import io
+                        import pandas as pd
+                        table_text = table_part.get("tableMarkdown", "")
+                        df = pd.read_table(io.StringIO(table_text), sep='|', skiprows=[1], engine='python')
+                        df.columns = [col.strip() for col in df.columns]  # Clean column names
+                        st.dataframe(df)
+                    except Exception as e:
+                        # Fallback to markdown if conversion fails
+                        st.markdown(table_part.get("tableMarkdown"))
                 else:
                     # For non-sample data, use expander
                     with st.expander("View result table", expanded=False):
