@@ -450,15 +450,12 @@ def create_chart10(df, cols):
         center_lat = df[lat_col].mean()
         center_lon = df[lon_col].mean()
         
-        # Prepare data for visualization
-        data = {
-            'latitude': df[lat_col],
-            'longitude': df[lon_col]
-        }
+        # Create a copy of the DataFrame and rename lat/lon columns
+        map_data = df.copy()
+        map_data = map_data.rename(columns={lat_col: 'latitude', lon_col: 'longitude'})
         
-        # Add color and size if specified
+        # Add color if specified
         if color_col and color_col in df.columns:
-            data['color'] = df[color_col]
             # If color column is categorical, create a color mapping
             if not pd.api.types.is_numeric_dtype(df[color_col]):
                 unique_categories = df[color_col].unique()
@@ -470,39 +467,37 @@ def create_chart10(df, cols):
                         200
                     ] for i, cat in enumerate(unique_categories)
                 }
-                data['color'] = df[color_col].map(lambda x: color_scale.get(x, [255, 140, 0, 100]))
+                map_data['color'] = df[color_col].map(lambda x: color_scale.get(x, [0, 100, 255, 100]))
             else:
                 # Normalize numeric color values to 0-255 range
                 min_val = df[color_col].min()
                 max_val = df[color_col].max()
                 if min_val != max_val:
-                    data['color'] = df[color_col].apply(lambda x: [
+                    map_data['color'] = df[color_col].apply(lambda x: [
                         int(255 * (x - min_val) / (max_val - min_val)),
                         140,
                         int(255 * (1 - (x - min_val) / (max_val - min_val))),
                         100
                     ])
                 else:
-                    data['color'] = [[255, 140, 0, 100]] * len(df)
+                    map_data['color'] = [[0, 100, 255, 100]] * len(df)
         
+        # Add size if specified
         if size_col and size_col in df.columns:
-            data['size'] = df[size_col]
             # Normalize size values between 100 and 1000
-            min_size = data['size'].min()
-            max_size = data['size'].max()
+            min_size = df[size_col].min()
+            max_size = df[size_col].max()
             if min_size != max_size:
-                data['size'] = 100 + 900 * (data['size'] - min_size) / (max_size - min_size)
+                map_data['size'] = 100 + 900 * (df[size_col] - min_size) / (max_size - min_size)
             else:
-                data['size'] = 300  # Default size if all values are the same
-        
-        map_data = pd.DataFrame(data)
+                map_data['size'] = 300  # Default size if all values are the same
         
         # Define the layer
         layer_props = {
             "data": map_data,
             "get_position": "[longitude, latitude]",
             "get_radius": 300 if not size_col else "size",
-            "get_fill_color": [255, 140, 0, 100] if not color_col else "color",
+            "get_fill_color": [0, 100, 255, 100] if not color_col else "color",
             "pickable": True,
             "opacity": 0.8,
             "stroked": True,
@@ -513,6 +508,13 @@ def create_chart10(df, cols):
         }
         
         scatterplot_layer = pdk.Layer("ScatterplotLayer", **layer_props)
+        
+        # Build tooltip HTML dynamically from all available columns
+        tooltip_html = ""
+        for col in df.columns:
+            if col != lat_col and col != lon_col:  # Skip lat/lon as they're added separately
+                # Use the original column name in the tooltip
+                tooltip_html += f"<b>{col}:</b> {{{col}}}<br/>"
         
         # Create the deck with US-focused initial view
         deck = pdk.Deck(
@@ -525,10 +527,9 @@ def create_chart10(df, cols):
             ),
             map_style="mapbox://styles/mapbox/light-v9",
             tooltip={
-                "html": "<b>Latitude:</b> {{latitude}}<br/>"
-                       "<b>Longitude:</b> {{longitude}}<br/>"
-                       + (f"<b>{color_col}:</b> {{{{color}}}}<br/>" if color_col and not isinstance(data.get('color', None), list) else "")
-                       + (f"<b>{size_col}:</b> {{{{size}}}}<br/>" if size_col else ""),
+                "html": "<b>Latitude:</b> {latitude}<br/>"
+                       "<b>Longitude:</b> {longitude}<br/>" +
+                       tooltip_html,
                 "style": {
                     "backgroundColor": "steelblue",
                     "color": "white"
@@ -539,7 +540,7 @@ def create_chart10(df, cols):
         return deck
         
     except Exception as e:
-        print(f"Error creating Chart 10: {str(e)}")
+        print(f"Error creating Chart 10: {e}")
         return None
 
 
@@ -895,33 +896,53 @@ def generate_chart_code_for_dataframe(df):
                 print(f"    center_lat = df[lat_col].mean()", file=buf)
                 print(f"    center_lon = df[lon_col].mean()", file=buf)
                 print(f"", file=buf)
-                print(f"    # Prepare data for visualization", file=buf)
-                print(f"    data = {{", file=buf)
-                print(f"        'latitude': df[lat_col],", file=buf)
-                print(f"        'longitude': df[lon_col]", file=buf)
-                print(f"    }}", file=buf)
+                print(f"    # Create a copy of the DataFrame and rename lat/lon columns", file=buf)
+                print(f"    map_data = df.copy()", file=buf)
+                print(f"    map_data = map_data.rename(columns={{'{lat_col}': 'latitude', '{lon_col}': 'longitude'}})", file=buf)
                 print(f"", file=buf)
-                print(f"    # Add color and size if specified", file=buf)
+                print(f"    # Add color if specified", file=buf)
                 print(f"    if color_col and color_col in df.columns:", file=buf)
-                print(f"        data['color'] = df[color_col]", file=buf)
-                print(f"    if size_col and size_col in df.columns:", file=buf)
-                print(f"        data['size'] = df[size_col]", file=buf)
-                print(f"        # Normalize size values between 100 and 1000", file=buf)
-                print(f"        min_size = data['size'].min()", file=buf)
-                print(f"        max_size = data['size'].max()", file=buf)
-                print(f"        if min_size != max_size:", file=buf)
-                print(f"            data['size'] = 100 + 900 * (data['size'] - min_size) / (max_size - min_size)", file=buf)
+                print(f"        # If color column is categorical, create a color mapping", file=buf)
+                print(f"        if not pd.api.types.is_numeric_dtype(df[color_col]):", file=buf)
+                print(f"            unique_categories = df[color_col].unique()", file=buf)
+                print(f"            color_scale = {{", file=buf)
+                print(f"                cat: [", file=buf)
+                print(f"                    int(255 * (i / len(unique_categories))),", file=buf)
+                print(f"                    100,", file=buf)
+                print(f"                    int(255 * (1 - i / len(unique_categories))),", file=buf)
+                print(f"                    200", file=buf)
+                print(f"                }} for i, cat in enumerate(unique_categories)", file=buf)
+                print(f"            map_data['color'] = df[color_col].map(lambda x: color_scale.get(x, [0, 100, 255, 100]))", file=buf)
                 print(f"        else:", file=buf)
-                print(f"            data['size'] = 300  # Default size if all values are the same", file=buf)
+                print(f"            # Normalize numeric color values to 0-255 range", file=buf)
+                print(f"            min_val = df[color_col].min()", file=buf)
+                print(f"            max_val = df[color_col].max()", file=buf)
+                print(f"            if min_val != max_val:", file=buf)
+                print(f"                map_data['color'] = df[color_col].apply(lambda x: [", file=buf)
+                print(f"                    int(255 * (x - min_val) / (max_val - min_val)),", file=buf)
+                print(f"                    140,", file=buf)
+                print(f"                    int(255 * (1 - (x - min_val) / (max_val - min_val))),", file=buf)
+                print(f"                    100", file=buf)
+                print(f"                ])", file=buf)
+                print(f"            else:", file=buf)
+                print(f"                map_data['color'] = [[0, 100, 255, 100]] * len(df)", file=buf)
                 print(f"", file=buf)
-                print(f"    map_data = pd.DataFrame(data)", file=buf)
+                print(f"    # Add size if specified", file=buf)
+                print(f"    if size_col and size_col in df.columns:", file=buf)
+                print(f"        # Normalize size values between 100 and 1000", file=buf)
+                print(f"        min_size = df[size_col].min()", file=buf)
+                print(f"        max_size = df[size_col].max()", file=buf)
+                print(f"        if min_size != max_size:", file=buf)
+                print(f"            map_data['size'] = 100 + 900 * (df[size_col] - min_size) / (max_size - min_size)", file=buf)
+                print(f"        else:", file=buf)
+                print(f"            map_data['size'] = 300  # Default size if all values are the same", file=buf)
                 print(f"", file=buf)
                 print(f"    # Define the layer", file=buf)
                 print(f"    layer_props = {{", file=buf)
                 print(f"        \"data\": map_data,", file=buf)
                 print(f"        \"get_position\": f\"[longitude, latitude]\",", file=buf)
                 print(f"        \"get_radius\": 300 if not size_col else \"size\",", file=buf)
-                print(f"        \"get_fill_color\": [255, 140, 0, 100] if not color_col else \"color\",", file=buf)
+                print(f"        \"get_fill_color\": [0, 100, 255, 100] if not color_col else \"color\",", file=buf)
                 print(f"        \"pickable\": True,", file=buf)
                 print(f"        \"opacity\": 0.8,", file=buf)
                 print(f"        \"stroked\": True,", file=buf)
@@ -932,6 +953,12 @@ def generate_chart_code_for_dataframe(df):
                 print(f"    }}", file=buf)
                 print(f"", file=buf)
                 print(f"    scatterplot_layer = pdk.Layer(\"ScatterplotLayer\", **layer_props)", file=buf)
+                print(f"", file=buf)
+                print(f"    # Build tooltip HTML dynamically from all available columns", file=buf)
+                print(f"    tooltip_html = \"\"", file=buf)
+                print(f"    for col in df.columns:", file=buf)
+                print(f"        if col != lat_col and col != lon_col:", file=buf)
+                print(f"            tooltip_html += f\"<b>{{col}}:</b> {{{col}}}<br/>\"", file=buf)
                 print(f"", file=buf)
                 print(f"    # Create the deck", file=buf)
                 print(f"    deck = pdk.Deck(", file=buf)
@@ -946,8 +973,7 @@ def generate_chart_code_for_dataframe(df):
                 print(f"        tooltip={{", file=buf)
                 print(f"            \"html\": \"<b>Latitude:</b> {{latitude}}<br/>\"", file=buf)
                 print(f"               \"<b>Longitude:</b> {{longitude}}<br/>\"", file=buf)
-                print(f"               + (f\"<b>{color_col}:</b> {{{{color}}}}<br/>\" if color_col and not isinstance(data.get('color', None), list) else \"\")", file=buf)
-                print(f"               + (f\"<b>{size_col}:</b> {{{{size}}}}<br/>\" if size_col else \"\"),", file=buf)
+                print(f"               + tooltip_html,", file=buf)
                 print(f"            \"style\": {{", file=buf)
                 print(f"                \"backgroundColor\": \"steelblue\",", file=buf)
                 print(f"                \"color\": \"white\"", file=buf)

@@ -29,6 +29,317 @@ from chart_utils import (
     create_chart10
 )
 
+def add_log(level: str, message: str) -> None:
+    """Add a log message to the debug log if debug mode is ON."""
+    # Check toggle state directly
+    if not st.session_state.get("debug_mode", False):
+        return
+        
+    # Initialize log if it doesn't exist
+    if "debug_log" not in st.session_state:
+        st.session_state.debug_log = []
+        
+    # Ensure message is string
+    if not isinstance(message, str):
+        try:
+            message = json.dumps(message, indent=2)
+        except TypeError:
+            message = str(message)  # Fallback to string conversion
+            
+    # Add timestamp and format message
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    st.session_state.debug_log.append(f"[{timestamp}] {level}: {message}")
+
+def generate_visualization_code(df: pd.DataFrame, prompt: str) -> str:
+    """
+    Generate visualization code using Claude 3.5 via Cortex based on the prompt and data structure.
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        The data to visualize
+    prompt : str
+        Natural language prompt describing desired visualization
+        
+    Returns:
+    --------
+    str
+        Generated Python code for creating the visualization
+    """
+    try:
+        # Get column information
+        col_types = detect_column_types(df)
+        
+        # Create a description of the data structure
+        data_description = []
+        if col_types['date_cols']: 
+            data_description.append(f"Date columns: {', '.join(col_types['date_cols'])}")
+        if col_types['numeric_cols']: 
+            data_description.append(f"Numeric columns: {', '.join(col_types['numeric_cols'])}")
+        if col_types['text_cols']: 
+            data_description.append(f"Text/categorical columns: {', '.join(col_types['text_cols'])}")
+        if col_types['lat_cols']: 
+            data_description.append(f"Latitude columns: {', '.join(col_types['lat_cols'])}")
+        if col_types['lon_cols']: 
+            data_description.append(f"Longitude columns: {', '.join(col_types['lon_cols'])}")
+        
+        # Construct the messages for Claude
+        messages = [
+            {
+                'role': 'system',
+                'content': """You are an expert in data visualization using Python libraries Altair and PyDeck. 
+                Your task is to generate ONLY the Python code needed to create the visualization, with no additional text or explanations.
+                
+                CRITICAL REQUIREMENTS:
+                1. The code MUST start with the line 'chart = ' followed by the visualization code
+                2. The DataFrame is already loaded and named 'df'
+                3. Use either Altair (alt) or PyDeck (pdk) library
+                4. Include proper encoding of data types (e.g., :Q for quantitative, :N for nominal, :T for temporal)
+                5. Include appropriate titles, labels, and tooltips
+                
+                For a bar chart request, your code should look EXACTLY like this:
+                ```python
+                chart = alt.Chart(df).mark_bar().encode(
+                    x=alt.X('column_name:N', title='Column Title'),
+                    y=alt.Y('value:Q', title='Value'),
+                    tooltip=['column_name', 'value']
+                ).properties(
+                    title='Chart Title',
+                    width='container',
+                    height=400
+                )
+                ```
+                
+                For a map request, your code should look EXACTLY like this:
+                ```python
+                chart = pdk.Deck(
+                    layers=[pdk.Layer('ScatterplotLayer', data=df, get_position='[lon, lat]')],
+                    initial_view_state=pdk.ViewState(latitude=0, longitude=0, zoom=2)
+                )
+                ```
+                
+                DO NOT include any text before or after the code.
+                DO NOT include any explanations or comments.
+                DO NOT include any markdown formatting.
+                ALWAYS start with 'chart = '.
+                ONLY return the exact Python code needed."""
+            },
+            {
+                'role': 'user',
+                'content': f"""Data structure:
+                {chr(10).join(data_description)}
+                
+                Create visualization: {prompt}"""
+            }
+        ]
+        
+        # Call Cortex Complete API
+        response = session.sql("""
+            SELECT SNOWFLAKE.CORTEX.COMPLETE(
+                'claude-3-5-sonnet',
+                parse_json(?),
+                {
+                    'temperature': 0.1,
+                    'max_tokens': 1000
+                }
+            );
+        """, params=[json.dumps(messages)]).collect()[0][0]
+        
+        # Parse the response
+        try:
+            # Extract the code from the API response
+            if isinstance(response, dict):
+                # Handle structured response format
+                choices = response.get('choices', [])
+                if not choices:
+                    add_log("ERROR", "No choices in API response")
+                    return None
+                    
+                messages_content = choices[0].get('messages', '')
+                if isinstance(messages_content, str):
+                    code = messages_content.strip()
+                elif isinstance(messages_content, dict):
+                    code = messages_content.get('content', '').strip()
+                else:
+                    add_log("ERROR", f"Unexpected messages content type: {type(messages_content)}")
+                    return None
+            elif isinstance(response, str):
+                # Handle direct string response
+                code = response.strip()
+            else:
+                add_log("ERROR", f"Unexpected response type from API: {type(response)}")
+                return None
+            
+            # Basic validation of the code
+            if not code:
+                add_log("ERROR", "Empty code generated")
+                return None
+                
+            if not code.startswith('chart ='):
+                # Try to fix the code by prepending 'chart = ' if it looks like valid visualization code
+                if any(lib in code for lib in ['alt.Chart', 'pdk.Deck']):
+                    code = 'chart = ' + code
+                    add_log("WARN", "Fixed missing 'chart = ' in generated code")
+                else:
+                    add_log("ERROR", "Generated code does not start with 'chart ='")
+                    return None
+                
+            if not any(lib in code for lib in ['alt.Chart', 'pdk.Deck']):
+                add_log("ERROR", "Generated code does not contain valid visualization code")
+                return None
+            
+            # Log the generated code for debugging
+            add_log("DEBUG", f"Generated visualization code:\n{code}")
+            return code
+            
+        except Exception as e:
+            add_log("ERROR", f"Error processing Cortex API response: {e}")
+            return None
+            
+    except Exception as e:
+        add_log("ERROR", f"Error generating visualization code: {e}")
+        return None
+
+def execute_visualization_code(code: str, df: pd.DataFrame) -> alt.Chart | pdk.Deck | None:
+    """
+    Safely execute the generated visualization code.
+    
+    Parameters:
+    -----------
+    code : str
+        The Python code to execute
+    df : pandas.DataFrame
+        The data to visualize
+        
+    Returns:
+    --------
+    altair.Chart or pydeck.Deck or None
+        The created visualization
+    """
+    if not code:
+        add_log("ERROR", "No code provided to execute_visualization_code")
+        return None
+        
+    try:
+        # Create a restricted local environment
+        local_dict = {
+            'df': df,
+            'alt': alt,
+            'pdk': pdk,
+            'pd': pd,
+            'np': pd.np if hasattr(pd, 'np') else __import__('numpy')  # Import numpy directly if not available via pandas
+        }
+        
+        # Add debug log of code being executed
+        add_log("DEBUG", f"Executing visualization code:\n{code}")
+        
+        try:
+            # Execute the code
+            exec(code, {'__builtins__': {}}, local_dict)
+        except NameError as e:
+            add_log("ERROR", f"Missing required module or variable: {e}")
+            return None
+        except SyntaxError as e:
+            add_log("ERROR", f"Invalid Python syntax in generated code: {e}")
+            return None
+        except Exception as e:
+            add_log("ERROR", f"Error executing visualization code: {e}")
+            return None
+        
+        # The code should create a variable named 'chart'
+        if 'chart' not in local_dict:
+            add_log("ERROR", "Generated code did not create a 'chart' variable")
+            return None
+            
+        chart = local_dict['chart']
+        
+        # If chart is a dict containing the API response, try to extract and execute the actual code
+        if isinstance(chart, dict) and 'choices' in chart:
+            try:
+                messages_content = chart.get('choices', [{}])[0].get('messages', '')
+                if isinstance(messages_content, str):
+                    actual_code = messages_content.strip()
+                    # Re-execute with the extracted code
+                    exec(actual_code, {'__builtins__': {}}, local_dict)
+                    chart = local_dict['chart']
+            except Exception as e:
+                add_log("ERROR", f"Error extracting and executing code from API response: {e}")
+                return None
+        
+        # Validate the chart object
+        if not isinstance(chart, (alt.Chart, pdk.Deck)):
+            add_log("ERROR", f"Generated chart is not an Altair Chart or PyDeck Deck (got {type(chart)})")
+            return None
+            
+        add_log("DEBUG", "Successfully created visualization")
+        return chart
+        
+    except Exception as e:
+        add_log("ERROR", f"Unexpected error in execute_visualization_code: {e}")
+        return None
+
+def process_visualization_prompt(df: pd.DataFrame, prompt: str) -> alt.Chart | pdk.Deck | None:
+    """
+    Process a natural language prompt to create a custom visualization.
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        The data to visualize
+    prompt : str
+        Natural language prompt describing desired visualization
+        
+    Returns:
+    --------
+    altair.Chart or pydeck.Deck or None
+        The created visualization based on the prompt
+    """
+    try:
+        add_log("INFO", f"Processing visualization prompt: {prompt}")
+        
+        # Generate visualization code using Claude 3.5
+        code = generate_visualization_code(df, prompt)
+        if not code:
+            add_log("WARN", "Failed to generate visualization code")
+            return None
+            
+        add_log("DEBUG", f"Generated visualization code:\n{code}")
+            
+        # Execute the generated code
+        chart = execute_visualization_code(code, df)
+        if not chart:
+            add_log("WARN", "Failed to execute visualization code")
+            return None
+            
+        add_log("DEBUG", f"Successfully created chart of type: {type(chart)}")
+            
+        # Apply common styling if it's an Altair chart
+        if isinstance(chart, alt.Chart):
+            chart = chart.configure_axis(
+                labelColor='hsla(221, 18%, 44%, 1)',
+                titleColor='hsla(221, 18%, 44%, 1)',
+                labelFontSize=12,
+                titleFontSize=14
+            ).configure_title(
+                fontSize=16,
+                color='hsla(221, 18%, 44%, 1)'
+            ).configure_legend(
+                labelColor='hsla(221, 18%, 44%, 1)',
+                titleColor='hsla(221, 18%, 44%, 1)',
+                labelFontSize=12,
+                titleFontSize=14
+            ).properties(
+                width='container',
+                height=400
+            )
+            
+        add_log("SUCCESS", "Successfully processed visualization prompt")
+        return chart
+        
+    except Exception as e:
+        add_log("ERROR", f"Error processing visualization prompt: {e}")
+        return None
+
 # Set page title and icon
 st.set_page_config(page_title="Cortex Agent Chat (Standalone)", page_icon="./Q Logo 2024.png", layout="wide")
 
@@ -107,21 +418,10 @@ if "charts" not in st.session_state: st.session_state.charts = [] # Store chart 
 if "visualization_states" not in st.session_state: st.session_state.visualization_states = {} # Store complete visualization states
 if "chart_expander_states" not in st.session_state: st.session_state.chart_expander_states = {} # Store expander states
 if "table_expander_states" not in st.session_state: st.session_state.table_expander_states = {} # Store table expander states
+if "persistent_visualizations" not in st.session_state: st.session_state.persistent_visualizations = {} # Store visualizations persistently
+if "message_visualizations" not in st.session_state: st.session_state.message_visualizations = {} # Map messages to their visualizations
 
-# --- Helper: Add Log Entry (Conditional) ---
-# (No changes needed in this function itself)
-def add_log(level, message):
-    """Appends a formatted message to the debug log if debug mode is ON."""
-    # Check toggle state directly
-    if not st.session_state.get("debug_mode", False): return
-    # Initialize log if it doesn't exist (shouldn't be needed with init above, but safe)
-    if "debug_log" not in st.session_state: st.session_state.debug_log = []
-    # Ensure message is string
-    if not isinstance(message, str):
-        try: message = json.dumps(message, indent=2)
-        except TypeError: message = str(message) # Fallback to string conversion
-    log_entry = f"{datetime.now()} - {level}: {message}"
-    st.session_state.debug_log.append(log_entry)
+
 
 def create_snowpark_session():
     """Creates and returns a Snowpark session using password authentication."""
@@ -178,6 +478,8 @@ if st.sidebar.button("Clear Chat History & Log"):
     st.session_state.debug_log = []
     st.session_state.charts = []  # Clear saved visualizations
     st.session_state.visualization_states = {}  # Clear visualization states
+    st.session_state.persistent_visualizations = {}  # Clear persistent visualizations
+    st.session_state.message_visualizations = {}  # Clear message-visualization mapping
     st.rerun()
 
 # --- Application Title and Header ---
@@ -770,47 +1072,176 @@ def display_chart(chart_data, message_index, is_new=False):
     chart_id = chart_data['id']
     state_key = f"msg{message_index}_{chart_id}"
     
-    # For historical charts, use the stored state if available
-    if not is_new and state_key in st.session_state.visualization_states:
-        stored_state = st.session_state.visualization_states[state_key]
-        
-        # Display the chart based on its type
-        if isinstance(stored_state.get('chart'), pdk.Deck):
-            st.pydeck_chart(stored_state['chart'])
-        elif stored_state.get('chart'):
-            st.altair_chart(stored_state['chart'], use_container_width=True)
-        else:
-            st.info("Could not create a visualization for this data structure.")
-        
+    # Initialize visualization state if new
+    if is_new:
+        st.session_state.persistent_visualizations[state_key] = {
+            'original_chart': chart_data['chart'],
+            'current_chart': chart_data['chart'],
+            'data': chart_data['data'].copy(),
+            'query': chart_data.get('query', ''),
+            'message_index': message_index,
+            'has_new_viz': False,  # Track if there's a new visualization
+            'showing_original': True  # Track which visualization is currently shown
+        }
+        # Map message to visualization
+        if message_index not in st.session_state.message_visualizations:
+            st.session_state.message_visualizations[message_index] = []
+        st.session_state.message_visualizations[message_index].append(state_key)
+    
+    # Get visualization from persistent storage
+    viz_data = st.session_state.persistent_visualizations.get(state_key, {})
+    if not viz_data:
+        st.warning("Visualization data not found")
         return
     
-    # For new charts or if no stored state exists
-    # Initialize session state for this chart if needed
-    if f"chart_data_{chart_id}" not in st.session_state:
-        st.session_state[f"chart_data_{chart_id}"] = {
-            'chart': chart_data['chart'],
-            'data': chart_data['data'].copy()
-        }
+    # Create tabs for visualization and data
+    viz_tab, data_tab = st.tabs(["Visualization", "Data"])
     
-    # Display the chart based on its type
-    current_chart = st.session_state[f"chart_data_{chart_id}"]['chart']
-    if isinstance(current_chart, pdk.Deck):
-        st.pydeck_chart(current_chart)
-    elif current_chart:
-        st.altair_chart(current_chart, use_container_width=True)
-    else:
-        st.info("Could not create a visualization for this data structure.")
+    with viz_tab:
+        # Create container for the chart display
+        chart_container = st.container()
+        
+        with chart_container:
+            # Display the current chart
+            current_chart = viz_data['current_chart']
+            if isinstance(current_chart, pdk.Deck):
+                st.pydeck_chart(current_chart)
+            elif current_chart:
+                st.altair_chart(current_chart, use_container_width=True)
+            else:
+                st.info("Could not create a visualization for this data structure.")
+        
+        # Initialize the prompt key in session state if it doesn't exist
+        prompt_key = f"viz_prompt_{state_key}"
+        toggle_key = f"toggle_state_{state_key}"
+        if prompt_key not in st.session_state:
+            st.session_state[prompt_key] = ""
+        if toggle_key not in st.session_state:
+            st.session_state[toggle_key] = True  # Start with original view
+        
+        # Create columns for prompt input and buttons
+        prompt_col, create_col, toggle_col = st.columns([0.6, 0.2, 0.2])
+        
+        with prompt_col:
+            # Add visualization prompt input with empty label to remove "press enter to apply"
+            viz_prompt = st.text_input(
+                " ",  # Empty label
+                key=prompt_key,
+                placeholder="Describe a new visualization for this data",
+                help="Example: 'Show me a map of locations colored by status' or 'Create a time series of revenue by category'"
+            )
+        
+        with create_col:
+            # Add submit button
+            submit_button = st.button("Create", key=f"submit_{state_key}")
+            
+        with toggle_col:
+            # Add toggle button if there's a new visualization
+            if viz_data.get('has_new_viz', False):
+                if st.button("Toggle View", key=f"toggle_{state_key}"):
+                    # Toggle the state
+                    st.session_state[toggle_key] = not st.session_state[toggle_key]
+                    # Update the visualization based on the toggle state
+                    viz_data['showing_original'] = st.session_state[toggle_key]
+                    viz_data['current_chart'] = viz_data['original_chart'] if viz_data['showing_original'] else viz_data['new_chart']
+                    # Update the persistent storage
+                    st.session_state.persistent_visualizations[state_key] = viz_data
+                    # Force a rerun to update the display
+                    st.rerun()
+        
+        # Process the prompt when submit button is clicked
+        if submit_button and viz_prompt:
+            # Get the data from persistent storage
+            df = viz_data['data']
+            
+            # Show processing indicator
+            with st.spinner("Creating new visualization..."):
+                # Process the prompt and create new visualization
+                new_chart = process_visualization_prompt(df, viz_prompt)
+                
+                if new_chart:
+                    # Update the visualization data with the new chart
+                    viz_data['new_chart'] = new_chart
+                    viz_data['current_chart'] = new_chart
+                    viz_data['has_new_viz'] = True
+                    viz_data['showing_original'] = False  # Set to show the new visualization
+                    st.session_state[toggle_key] = False  # Update toggle state
+                    
+                    # Update the persistent storage
+                    st.session_state.persistent_visualizations[state_key] = viz_data
+                    
+                    # Force a rerun to update the display
+                    st.rerun()
+                else:
+                    st.error("Could not create a visualization based on your prompt. Please try a different description.")
     
-    # Store the current state if this is a new chart
-    if is_new:
-        st.session_state.visualization_states[state_key] = {
-            'chart': current_chart
-        }
+    with data_tab:
+        # Display the data and SQL
+        st.dataframe(viz_data['data'])
+        if viz_data.get('query'):
+            st.markdown("#### SQL Query")
+            st.code(viz_data.get('query', 'No query available'), language="sql")
 
-def is_sample_request(query: str) -> bool:
-    """Check if the query is asking for a sample or example of data."""
-    query_lower = query.lower()
-    return any(keyword in query_lower for keyword in SAMPLE_KEYWORDS)
+def is_sample_request(query: str | dict | list) -> bool:
+    """
+    Check if the query is asking for a sample or example of data.
+    
+    Parameters:
+    -----------
+    query : str | dict | list
+        Either a string query or a message content structure
+        
+    Returns:
+    --------
+    bool
+        True if this is a sample request, False otherwise
+    """
+    try:
+        # Handle different input types
+        if isinstance(query, str):
+            query_text = query
+        elif isinstance(query, dict):
+            # Handle dict format {"type": "text", "text": "..."} or {"content": [{"type": "text", "text": "..."}]}
+            if "text" in query:
+                query_text = query.get("text", "")
+            elif "content" in query and isinstance(query["content"], list):
+                # Try to find first text content
+                for item in query["content"]:
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        query_text = item.get("text", "")
+                        break
+                else:
+                    query_text = ""
+            else:
+                query_text = str(query)
+        elif isinstance(query, list):
+            # Handle list format [{"type": "text", "text": "..."}, ...]
+            query_text = ""
+            for item in query:
+                if isinstance(item, dict):
+                    if item.get("type") == "text":
+                        query_text = item.get("text", "")
+                        break
+                    elif isinstance(item.get("content"), list):
+                        for content_item in item["content"]:
+                            if isinstance(content_item, dict) and content_item.get("type") == "text":
+                                query_text = content_item.get("text", "")
+                                break
+                        if query_text:
+                            break
+                elif isinstance(item, str):
+                    query_text = item
+                    break
+        else:
+            query_text = str(query)
+            
+        # Check for sample keywords in the extracted text
+        query_lower = query_text.lower()
+        return any(keyword in query_lower for keyword in SAMPLE_KEYWORDS)
+        
+    except Exception as e:
+        add_log("WARN", f"Error in is_sample_request: {e}")
+        return False  # Default to non-sample request on error
 
 # --- Core Chat Logic ---
 
@@ -881,41 +1312,11 @@ for i, message in enumerate(st.session_state.messages):
                         for content in response_content:
                             st.markdown(content["text"])
                         
-                        # Display table if present
-                        if table_part:
-                            # Check if this was a sample request
-                            is_sample = False
-                            if i < len(st.session_state.messages):
-                                is_sample = is_sample_request(st.session_state.messages[i]["content"][0]["text"])
-                            
-                            if is_sample:
-                                # For sample data, display table directly using st.dataframe
-                                try:
-                                    # Convert markdown table back to dataframe
-                                    import io
-                                    import pandas as pd
-                                    table_text = table_part.get("tableMarkdown", "")
-                                    df = pd.read_table(io.StringIO(table_text), sep='|', skiprows=[1], engine='python')
-                                    df.columns = [col.strip() for col in df.columns]  # Clean column names
-                                    st.dataframe(df)
-                                except Exception as e:
-                                    # Fallback to markdown if conversion fails
-                                    st.markdown(table_part.get("tableMarkdown"))
-                            else:
-                                # For non-sample data, use expander
-                                with st.expander("View result table", expanded=False):
-                                    st.markdown(table_part.get("tableMarkdown"))
-                        
-                        # Display chart if present and not a sample request
-                        if chart_data and not is_sample:
+                        # Display chart if present
+                        if chart_data:
                             st.markdown("---")
-                            viz_tab, data_tab = st.tabs([f"Visualization {chart_data['id']}", f"Data {chart_data['id']}"])
-                            
-                            with viz_tab:
-                                display_chart(chart_data, i, is_new=False)
-                            
-                            with data_tab:
-                                st.dataframe(chart_data['data'])
+                            # Display the chart directly without tabs since they're handled in display_chart
+                            display_chart(chart_data, i, is_new=False)
                         
                         # Display other non-text content
                         if non_text_parts:
@@ -935,41 +1336,11 @@ for i, message in enumerate(st.session_state.messages):
                         for content in response_content:
                             st.markdown(content["text"])
                         
-                        # Display table if present
-                        if table_part:
-                            # Check if this was a sample request
-                            is_sample = False
-                            if i < len(st.session_state.messages):
-                                is_sample = is_sample_request(st.session_state.messages[i]["content"][0]["text"])
-                            
-                            if is_sample:
-                                # For sample data, display table directly using st.dataframe
-                                try:
-                                    # Convert markdown table back to dataframe
-                                    import io
-                                    import pandas as pd
-                                    table_text = table_part.get("tableMarkdown", "")
-                                    df = pd.read_table(io.StringIO(table_text), sep='|', skiprows=[1], engine='python')
-                                    df.columns = [col.strip() for col in df.columns]  # Clean column names
-                                    st.dataframe(df)
-                                except Exception as e:
-                                    # Fallback to markdown if conversion fails
-                                    st.markdown(table_part.get("tableMarkdown"))
-                            else:
-                                # For non-sample data, use expander
-                                with st.expander("View result table", expanded=False):
-                                    st.markdown(table_part.get("tableMarkdown"))
-                        
-                        # Display chart if present and not a sample request
-                        if chart_data and not is_sample:
+                        # Display chart if present
+                        if chart_data:
                             st.markdown("---")
-                            viz_tab, data_tab = st.tabs([f"Visualization {chart_data['id']}", f"Data {chart_data['id']}"])
-                            
-                            with viz_tab:
-                                display_chart(chart_data, i, is_new=False)
-                            
-                            with data_tab:
-                                st.dataframe(chart_data['data'])
+                            # Display the chart directly without tabs since they're handled in display_chart
+                            display_chart(chart_data, i, is_new=False)
                         
                         # Display other non-text content
                         if non_text_parts:
@@ -987,42 +1358,14 @@ for i, message in enumerate(st.session_state.messages):
                 except Exception as e:
                     add_log("WARN", f"Error displaying SQL from history: {e}")
             
-            if table_part:
-                # Check if this was a sample request
-                is_sample = False
-                if i < len(st.session_state.messages):
-                    is_sample = is_sample_request(st.session_state.messages[i]["content"][0]["text"])
-                
-                if is_sample:
-                    # For sample data, display table directly using st.dataframe
-                    try:
-                        # Convert markdown table back to dataframe
-                        import io
-                        import pandas as pd
-                        table_text = table_part.get("tableMarkdown", "")
-                        df = pd.read_table(io.StringIO(table_text), sep='|', skiprows=[1], engine='python')
-                        df.columns = [col.strip() for col in df.columns]  # Clean column names
-                        st.dataframe(df)
-                    except Exception as e:
-                        # Fallback to markdown if conversion fails
-                        st.markdown(table_part.get("tableMarkdown"))
-                else:
-                    # For non-sample data, use expander
-                    with st.expander("View result table", expanded=False):
-                        st.markdown(table_part.get("tableMarkdown"))
-            
             if chart_data:
                 st.markdown("---")
-                viz_tab, data_tab = st.tabs([f"Visualization {chart_data['id']}", f"Data {chart_data['id']}"])
+                # Display the chart directly without tabs since they're handled in display_chart
+                display_chart(chart_data, i, is_new=False)
                 
-                with viz_tab:
-                    display_chart(chart_data, i, is_new=False)
-                
-                with data_tab:
-                    st.dataframe(chart_data['data'])
-            
-            if non_text_parts:
-                display_non_text_content(non_text_parts, "\n".join([r["text"] for r in response_content]), message_key_prefix=f"msg_{i}")
+                # Display other non-text content
+                if non_text_parts:
+                    display_non_text_content(non_text_parts, "\n".join([r["text"] for r in response_content]), message_key_prefix=f"msg_{i}")
 
 # --- Handle User Input ---
 if prompt := st.chat_input("What can I help with?"):
@@ -1135,11 +1478,14 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
                                 chart_id = f"chart_{len(st.session_state.charts)}"
                                 
                                 # Check if this is a sample request
-                                is_sample = is_sample_request(st.session_state.messages[-1]["content"][0]["text"])
+                                is_sample = is_sample_request(st.session_state.messages[-1])
                                 
-                                # Create chart only if not a sample request
-                                chart = None
-                                if not is_sample:
+                                # Display current results
+                                if sql_dataframe_result is not None and not sql_dataframe_result.empty:
+                                    # Calculate current message index
+                                    current_msg_index = len(st.session_state.messages) - 1
+                                    
+                                    # Create chart for all results
                                     chart = create_best_chart(sql_dataframe_result)
                                     if chart:
                                         # When creating a new chart, store the message index
@@ -1151,38 +1497,24 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
                                             'result_id': result_id,  # Link to the result
                                             'message_index': len(st.session_state.messages) - 1  # Store the message index
                                         })
-                                
-                                # Initialize expander states if not exists
-                                if result_id not in st.session_state.table_expander_states:
-                                    st.session_state.table_expander_states[result_id] = True
-                                if chart_id not in st.session_state.chart_expander_states:
-                                    st.session_state.chart_expander_states[chart_id] = True
-                                
-                                # Display current results
-                                if is_sample:
+                                        
+                                        chart_data = {
+                                            'id': chart_id,
+                                            'chart': chart,
+                                            'data': sql_dataframe_result,
+                                            'query': sql_to_execute
+                                        }
+                                        display_chart(chart_data, current_msg_index, is_new=True)
+                                    
+                                    # Store the table for history
+                                    table_markdown = sql_dataframe_result.to_markdown(index=False)
+                                    final_history_content.append({"type": "fetched_table", "tableMarkdown": table_markdown, "toolResult": True})
+                                else:
                                     # For sample requests, only show the data table
                                     st.dataframe(sql_dataframe_result)
                                     # Store the table for history
                                     table_markdown = sql_dataframe_result.to_markdown(index=False)
                                     final_history_content.append({"type": "fetched_table", "tableMarkdown": table_markdown, "toolResult": True})
-                                else:
-                                    # Create tabs for visualization and data
-                                    viz_tab, data_tab = st.tabs(["Visualization", "Data"])
-                                    
-                                    with data_tab:
-                                        st.dataframe(sql_dataframe_result)
-                                    
-                                    with viz_tab:
-                                        # Calculate current message index
-                                        current_msg_index = len(st.session_state.messages) - 1
-                                        if chart:
-                                            chart_data = {
-                                                'id': chart_id,
-                                                'chart': chart,
-                                                'data': sql_dataframe_result,
-                                                'query': sql_to_execute
-                                            }
-                                            display_chart(chart_data, current_msg_index, is_new=True)
 
                             sql_exec_success = True # Mark SQL success
                             add_log("INFO", f"SQL executed (Query ID: {query_id}). Making 2nd API call.")
@@ -1238,20 +1570,40 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
                                 # Rebuild history content based on success flags
                                 if api_call_2_success:
                                     combined_final_content = []
-                                    # Add Text 1 (FILTERED) if it exists
-                                    if filtered_text_1: combined_final_content.append({"type": "text", "text": filtered_text_1})
-                                    # Add Tool Use/Result from Call 1
-                                    combined_final_content.extend([p for p in non_text_parts_1 if p.get("type") in ["tool_use", "tool_results"]])
-                                    # Add Fetched Table
+                                    
+                                    # 1. Add Tool Use/Result from Call 1 (SQL generation)
+                                    sql_tool_parts = [p for p in non_text_parts_1 if p.get("type") in ["tool_use", "tool_results"] and 
+                                                    p.get("tool_results", {}).get("name") == "analyst1"]
+                                    combined_final_content.extend(sql_tool_parts)
+                                    
+                                    # 2. Add Text 1 (FILTERED) if it exists - initial analysis
+                                    if filtered_text_1: 
+                                        combined_final_content.append({"type": "text", "text": filtered_text_1})
+                                    
+                                    # 3. Add Fetched Table from SQL results
                                     if sql_dataframe_result is not None and not sql_dataframe_result.empty:
-                                        combined_final_content.append({ "type": "fetched_table", "tableMarkdown": sql_dataframe_result.to_markdown(index=False), "toolResult": True })
-                                    # Add Text 2 (FILTERED) if it exists
+                                        combined_final_content.append({
+                                            "type": "fetched_table", 
+                                            "tableMarkdown": sql_dataframe_result.to_markdown(index=False), 
+                                            "toolResult": True
+                                        })
+                                    
+                                    # 4. Add Text 2 (FILTERED) - data analysis
                                     if full_text_2:
                                         filtered_text_2 = re.sub(RELATED_QUERIES_REGEX, "", full_text_2, flags=re.DOTALL | re.IGNORECASE).strip()
-                                        if filtered_text_2: # Only add if non-empty after filtering
+                                        if filtered_text_2:
                                             combined_final_content.append({"type": "text", "text": filtered_text_2})
-                                    # Add other non-text parts from Call 2
-                                    combined_final_content.extend([p for p in non_text_parts_2 if p.get("type") not in ["tool_use", "tool_results"]])
+                                    
+                                    # 5. Add visualization-related tool results and other non-text parts from Call 2
+                                    viz_tool_parts = [p for p in non_text_parts_2 if p.get("type") in ["tool_use", "tool_results"] and 
+                                                    p.get("tool_results", {}).get("name") == "data_to_chart"]
+                                    combined_final_content.extend(viz_tool_parts)
+                                    
+                                    # 6. Add any remaining non-text parts that weren't handled above
+                                    remaining_parts = [p for p in non_text_parts_2 if p.get("type") not in ["tool_use", "tool_results"] or
+                                                     (p.get("type") == "tool_results" and 
+                                                      p.get("tool_results", {}).get("name") not in ["analyst1", "data_to_chart"])]
+                                    combined_final_content.extend(remaining_parts)
 
                                     final_history_content = combined_final_content # Set the final history content
                                 # else: Error text already appended if stream 2 failed
@@ -1262,7 +1614,6 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
                                 final_history_content = message_content_1 + [{"type": "text", "text": error_text}]
                                 # Display error in the second placeholder
                                 st.error(error_text.strip())
-
 
                         else: # SQL execution failed
                             # Add error directly to history content list (using message_content_1 which has filtered text 1)
@@ -1293,7 +1644,6 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
                       add_log("DEBUG", "Skipping append to history, message content seems identical to last one.")
             else:
                  add_log("WARN", "No final message content generated, not appending to history.")
-
 
             # --- Display Final Non-Text Content (after spinner) ---
             # The streamed text is already visible in the placeholders above.
@@ -1344,3 +1694,5 @@ if st.session_state.get("debug_mode", False):
     st.sidebar.subheader("Message History (Debug)")
     with st.sidebar.expander("Show Message History JSON", expanded=False):
         st.json(st.session_state.messages)
+
+
