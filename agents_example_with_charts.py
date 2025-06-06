@@ -387,21 +387,21 @@ SAMPLE_KEYWORDS = ['sample', 'example', 'show me some', 'give me some', 'few exa
 
 # Define Tools
 CORTEX_ANALYST_TOOL_DEF = { "tool_spec": { "type": "cortex_analyst_text_to_sql", "name": "analyst1" } }
-CORTEX_SEARCH_TOOL_DEF = { "tool_spec": { "type": "cortex_search", "name": "search1" } }
+#CORTEX_SEARCH_TOOL_DEF = { "tool_spec": { "type": "cortex_search", "name": "search1" } }
 SQL_EXEC_TOOL_DEF = { "tool_spec": { "type": "sql_exec", "name": "sql_exec" } }
 
 # Define the list of tools to be sent to the API.
 AGENT_TOOLS = [
     CORTEX_ANALYST_TOOL_DEF, 
-    CORTEX_SEARCH_TOOL_DEF,
+    #CORTEX_SEARCH_TOOL_DEF,
     SQL_EXEC_TOOL_DEF
 ]
 
 # Define Tool Resources, ensure paths/names are valid in your Snowflake account)
 # !!! IMPORTANT: Replace placeholder values below !!!
 AGENT_TOOL_RESOURCES = {
-    "analyst1": { "semantic_model_file": "@TELCO_SAMPLE_DATA.TELCO_DATASET.semantic_models/telco_test_data.yaml" },
-    "search1": { "name": "telco_search_service", "max_results": 10 },
+    "analyst1": { "semantic_model_file": "@TELCO_SAMPLE_DATA.TELCO_DATASET.semantic_models/tt_obscured_data_table.yaml" }
+    #"search1": { "name": "telco_search_service", "max_results": 10 },
 }
 
 # Define Experimental Params
